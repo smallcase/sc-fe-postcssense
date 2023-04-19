@@ -1,5 +1,5 @@
 {
-  "name": "@smallcase/shringarcss-intellisense",
+  "name": "shringarcss-intellisense",
   "displayName": "Shringar CSS",
   "description": "A Visual Studio Code extension for providing intellisense for global Shringar CSS classes.",
   "version": "1.0.0",
