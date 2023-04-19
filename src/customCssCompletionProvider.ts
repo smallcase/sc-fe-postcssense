@@ -88,5 +88,5 @@ function parseCssClasses(cssContent: string): string[] {
     });
   });
 
-  return cssClasses;
+  return Array.from(new Set([...cssClasses]));
 }
