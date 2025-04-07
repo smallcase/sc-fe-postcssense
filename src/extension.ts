@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
 import { CustomCssCompletionProvider } from './customCssCompletionProvider';
+import { CustomCssHoverProvider } from './customCssHoverProvider';
+import { CssClassesPanel } from './cssClassesPanel';
 
 export function activate(context: vscode.ExtensionContext) {
-  const provider = new CustomCssCompletionProvider();
+  const completionProvider = new CustomCssCompletionProvider();
+  const hoverProvider = new CustomCssHoverProvider();
 
   // Register completion provider for multiple languages
   const languages = [
@@ -16,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Different trigger characters for CSS and HTML/JSX/TSX
   const cssProvider = vscode.languages.registerCompletionItemProvider(
     { scheme: 'file', language: 'css' },
-    provider,
+    completionProvider,
     ':'
   );
 
@@ -26,7 +29,7 @@ export function activate(context: vscode.ExtensionContext) {
     .map((language) =>
       vscode.languages.registerCompletionItemProvider(
         { scheme: 'file', language },
-        provider,
+        completionProvider,
         ' ',
         '"',
         "'",
@@ -34,7 +37,28 @@ export function activate(context: vscode.ExtensionContext) {
       )
     );
 
-  context.subscriptions.push(cssProvider, ...htmlJsxProvider);
+  // Register hover provider for all supported languages
+  const hoverProviders = languages.map((language) =>
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', language },
+      hoverProvider
+    )
+  );
+
+  // Register command to show CSS classes panel
+  const showClassesPanelCommand = vscode.commands.registerCommand(
+    'shringarcss-intellisense.showClasses',
+    () => {
+      CssClassesPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  context.subscriptions.push(
+    cssProvider,
+    ...htmlJsxProvider,
+    ...hoverProviders,
+    showClassesPanelCommand
+  );
 
   // Register command to set CSS path
   const setCssPathCommand = vscode.commands.registerCommand(

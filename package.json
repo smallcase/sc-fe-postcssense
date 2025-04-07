@@ -26,6 +26,7 @@
   "activationEvents": [
     "onLanguage:css",
     "onLanguage:html",
+    "onLanguage:javascript",
     "onLanguage:javascriptreact",
     "onLanguage:typescriptreact"
   ],
@@ -46,6 +47,10 @@
       {
         "command": "shringarcss-intellisense.setCssPath",
         "title": "Shringar CSS: Set CSS Path"
+      },
+      {
+        "command": "shringarcss-intellisense.showClasses",
+        "title": "Shringar CSS: Show All Classes"
       }
     ],
     "configuration": {
@@ -68,6 +73,7 @@
   },
   "devDependencies": {
     "@types/css": "^0.0.33",
+    "@types/glob": "^8.1.0",
     "@types/node": "^14.14.37",
     "@types/vscode": "^1.60.0",
     "typescript": "^4.3.5",
@@ -76,6 +82,7 @@
   },
   "dependencies": {
     "css": "^3.0.0",
+    "glob": "^10.3.10",
     "postcss": "^8.0.0",
     "postcss-import": "^15.1.0"
   },
