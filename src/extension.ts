@@ -7,6 +7,11 @@ export function activate(context: vscode.ExtensionContext) {
   const completionProvider = new CustomCssCompletionProvider();
   const hoverProvider = new CustomCssHoverProvider();
 
+  // Initialize hover provider by loading class definitions
+  hoverProvider.updateClassDefinitions().then(() => {
+    console.log('Class definitions initialized');
+  });
+
   // Register completion provider for multiple languages
   const languages = [
     'css',
@@ -53,11 +58,23 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // Watch for CSS file changes
+  const cssFileWatcher = vscode.workspace.createFileSystemWatcher('**/*.css');
+  cssFileWatcher.onDidChange(() => {
+    console.log('CSS file changed, updating class definitions');
+    hoverProvider.updateClassDefinitions();
+  });
+  cssFileWatcher.onDidCreate(() => {
+    console.log('CSS file created, updating class definitions');
+    hoverProvider.updateClassDefinitions();
+  });
+
   context.subscriptions.push(
     cssProvider,
     ...htmlJsxProvider,
     ...hoverProviders,
-    showClassesPanelCommand
+    showClassesPanelCommand,
+    cssFileWatcher
   );
 
   // Register command to set CSS path

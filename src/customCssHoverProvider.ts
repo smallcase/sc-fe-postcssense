@@ -1,156 +1,247 @@
 import * as vscode from 'vscode';
-import postcss from 'postcss';
-import { readFile } from 'fs/promises';
 import * as path from 'path';
+import { readFile } from 'fs/promises';
+import postcss from 'postcss';
+
+// Cache for class definitions
+let classDefinitions: Map<string, string> = new Map();
+let lastUpdated = 0;
 
 export class CustomCssHoverProvider implements vscode.HoverProvider {
-  private cssCache: Map<
-    string,
-    { properties: Map<string, string>; lastUpdate: number }
-  > = new Map();
-  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
   async provideHover(
     document: vscode.TextDocument,
     position: vscode.Position,
     token: vscode.CancellationToken
   ): Promise<vscode.Hover | null> {
-    // Get the word at current position
-    const range = document.getWordRangeAtPosition(position, /[\w-]+/);
-    if (!range) {
-      return null;
+    // Check if we need to refresh the class definitions
+    const now = Date.now();
+    if (now - lastUpdated > 5 * 60 * 1000 || classDefinitions.size === 0) {
+      await this.updateClassDefinitions();
+      lastUpdated = now;
     }
 
-    const word = document.getText(range);
-
-    // Check if we're in a valid context (className, class, or composes)
     const line = document.lineAt(position.line).text;
-    const isValidContext = this.isInValidContext(line, position.character);
-    if (!isValidContext) {
+    const wordRange = document.getWordRangeAtPosition(position, /[\w\-\d]+/);
+
+    if (!wordRange) {
       return null;
     }
 
-    // Get CSS properties for the class
-    const properties = await this.getCssProperties(document, word);
-    if (!properties || properties.size === 0) {
-      return null;
+    const word = document.getText(wordRange);
+
+    // Check if this is in a composes statement in CSS
+    if (
+      document.languageId === 'css' &&
+      line.includes('composes:') &&
+      line.includes('from global')
+    ) {
+      // Extract classes from composes statement
+      const composesMatch = line.match(/composes:\s*(.*?)\s+from\s+global/);
+      if (composesMatch) {
+        const classes = composesMatch[1].trim().split(/\s+/);
+
+        // Check if hovered word is one of these classes
+        if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
+      }
     }
 
-    // Create markdown content
-    const content = new vscode.MarkdownString();
-    content.appendCodeblock(this.formatCssProperties(word, properties), 'css');
-    content.isTrusted = true;
-    content.supportHtml = true;
+    // For JS/TS/JSX/TSX, check if this is in a global() function
+    else if (
+      [
+        'javascript',
+        'javascriptreact',
+        'typescript',
+        'typescriptreact',
+      ].includes(document.languageId)
+    ) {
+      const globalMatch = line.match(
+        new RegExp(`global\\((["'\`])?${word}\\1\\)`)
+      );
+      if (globalMatch) {
+        return this.createHoverForClass(word);
+      }
+    }
 
-    return new vscode.Hover(content, range);
+    return null;
   }
 
-  private isInValidContext(line: string, position: number): boolean {
-    const lineUptoCursor = line.slice(0, position);
-    return (
-      // Check for className in JSX
-      /className\s*=\s*["'\`][^"']*$/.test(lineUptoCursor) ||
-      // Check for class in HTML
-      /class\s*=\s*["'\`][^"']*$/.test(lineUptoCursor) ||
-      // Check for composes in CSS
-      /composes\s*:\s*[^;]*$/.test(lineUptoCursor)
-    );
+  private createHoverForClass(className: string): vscode.Hover | null {
+    const properties = classDefinitions.get(className);
+    if (properties) {
+      const formattedProperties = `.${className} {\n  ${properties}\n}`;
+      return new vscode.Hover(
+        new vscode.MarkdownString('```css\n' + formattedProperties + '\n```')
+      );
+    }
+    return null;
   }
 
-  private async getCssProperties(
-    document: vscode.TextDocument,
-    className: string
-  ): Promise<Map<string, string> | null> {
+  public async updateClassDefinitions(): Promise<void> {
     try {
+      // Get the user-provided CSS path from settings
       const config = vscode.workspace.getConfiguration(
         'shringarcss-intellisense'
       );
       const cssPath = config.get<string>('cssPath');
 
       if (!cssPath) {
-        return null;
+        vscode.window.showErrorMessage(
+          'CSS path is not configured. Please set shringarcss-intellisense.cssPath in settings.'
+        );
+        return;
       }
 
-      const rootPath = vscode.workspace.getWorkspaceFolder(document.uri)?.uri
-        .fsPath;
-      if (!rootPath) {
-        return null;
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found.');
+        return;
       }
 
-      const fullPath = path.join(rootPath, cssPath);
+      const cssFilePath = path.join(workspaceFolder.uri.fsPath, cssPath);
 
-      // Check cache
-      const cached = this.cssCache.get(fullPath);
-      if (cached && Date.now() - cached.lastUpdate < this.CACHE_DURATION) {
-        return this.filterPropertiesForClass(cached.properties, className);
+      try {
+        // Read the CSS file
+        const cssContent = await readFile(cssFilePath, 'utf-8');
+
+        // Use PostCSS to parse and process imports
+        const result = await postcss([
+          require('postcss-import')({
+            root: workspaceFolder.uri.fsPath,
+          }),
+        ]).process(cssContent, { from: cssFilePath });
+
+        // Parse the processed CSS
+        const ast = postcss.parse(result.css);
+        classDefinitions.clear();
+
+        // Extract class definitions from the CSS
+        this.extractClassDefinitions(ast);
+
+        vscode.window.setStatusBarMessage(
+          `Found ${classDefinitions.size} CSS classes`,
+          3000
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(`Error reading CSS file: ${error}`);
       }
-
-      // Read and parse CSS file
-      const cssContent = await readFile(fullPath, 'utf-8');
-      const result = await postcss([require('postcss-import')({})]).process(
-        cssContent,
-        {
-          from: fullPath,
-        }
-      );
-
-      const properties = await this.parseCssProperties(result.css);
-      this.cssCache.set(fullPath, { properties, lastUpdate: Date.now() });
-
-      return this.filterPropertiesForClass(properties, className);
     } catch (error) {
-      console.error('Error getting CSS properties:', error);
-      return null;
+      vscode.window.showErrorMessage(
+        `Error updating class definitions: ${error}`
+      );
     }
   }
 
-  private async parseCssProperties(css: string): Promise<Map<string, string>> {
-    const properties = new Map<string, string>();
-    const ast = postcss.parse(css);
+  private extractClassDefinitions(ast: postcss.Root): void {
+    // Track rules for each class to handle both simple and complex selectors
+    const classRules: Map<
+      string,
+      { rules: postcss.Rule[]; medias: Map<string, postcss.Rule[]> }
+    > = new Map();
 
+    // Walk through all rules in the AST
     ast.walkRules((rule) => {
+      // Skip keyframes
+      if (
+        rule.parent?.type === 'atrule' &&
+        (rule.parent as postcss.AtRule).name === 'keyframes'
+      ) {
+        return;
+      }
+
+      // Helper function to extract class names from a selector
+      const extractClasses = (selector: string): string[] => {
+        const classes: string[] = [];
+
+        // Match class names in various formats
+        // 1. Simple class selectors (.classname)
+        const simpleMatches = selector.match(/\.([\w\-]+)/g);
+        if (simpleMatches) {
+          simpleMatches.forEach((match) => {
+            const className = match.substring(1); // Remove the leading dot
+            classes.push(className);
+          });
+        }
+
+        // 2. Global function syntax (global(classname))
+        const globalFuncMatches = selector.match(/global\(([\w\-]+)\)/g);
+        if (globalFuncMatches) {
+          globalFuncMatches.forEach((match) => {
+            const className = match.substring(7, match.length - 1); // Remove global( and )
+            classes.push(className);
+          });
+        }
+
+        return classes;
+      };
+
+      // Process each selector in the rule
       rule.selectors.forEach((selector) => {
-        const matches = selector.match(/\.?global(?:\((.+?)\)|\.(\S+))/);
-        if (matches) {
-          const className = matches[1] || matches[2];
-          if (!properties.has(className)) {
-            properties.set(className, '');
+        const classes = extractClasses(selector);
+
+        classes.forEach((className) => {
+          // Get or create entry for this class
+          if (!classRules.has(className)) {
+            classRules.set(className, { rules: [], medias: new Map() });
           }
 
-          const props = Array.from(rule.nodes)
-            .filter((node): node is postcss.Declaration => node.type === 'decl')
-            .map((node) => `${node.prop}: ${node.value};`)
-            .join('\n  ');
+          const classEntry = classRules.get(className)!;
 
-          properties.set(className, props);
-        }
+          // Check if this rule is inside a media query
+          const parentAtRule =
+            rule.parent?.type === 'atrule'
+              ? (rule.parent as postcss.AtRule)
+              : null;
+          if (parentAtRule?.name === 'media') {
+            const mediaQuery = parentAtRule.params;
+
+            if (!classEntry.medias.has(mediaQuery)) {
+              classEntry.medias.set(mediaQuery, []);
+            }
+
+            classEntry.medias.get(mediaQuery)!.push(rule);
+          } else {
+            classEntry.rules.push(rule);
+          }
+        });
       });
     });
 
-    return properties;
-  }
+    // Now process all collected rules and build the class definitions
+    for (const [className, { rules, medias }] of classRules.entries()) {
+      let properties = '';
 
-  private filterPropertiesForClass(
-    properties: Map<string, string>,
-    className: string
-  ): Map<string, string> {
-    const result = new Map<string, string>();
-    const value = properties.get(className);
-    if (value) {
-      result.set(className, value);
+      // First add regular rules
+      rules.forEach((rule) => {
+        rule.nodes.forEach((node) => {
+          if (node.type === 'decl') {
+            properties += properties
+              ? `\n  ${node.toString()}`
+              : node.toString();
+          }
+        });
+      });
+
+      // Then add media queries
+      medias.forEach((mediaRules, mediaQuery) => {
+        properties += properties ? '\n  ' : '';
+        properties += `@media ${mediaQuery} {\n`;
+
+        mediaRules.forEach((rule) => {
+          rule.nodes.forEach((node) => {
+            if (node.type === 'decl') {
+              properties += `    ${node.toString()}\n`;
+            }
+          });
+        });
+
+        properties += '  }';
+      });
+
+      if (properties) {
+        classDefinitions.set(className, properties);
+      }
     }
-    return result;
-  }
-
-  private formatCssProperties(
-    className: string,
-    properties: Map<string, string>
-  ): string {
-    const props = properties.get(className);
-    if (!props) {
-      return '';
-    }
-
-    return `.${className} {\n  ${props}\n}`;
   }
 }
