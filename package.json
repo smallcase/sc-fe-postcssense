@@ -1,8 +1,8 @@
 {
-  "name": "shringarcss-intellisense",
-  "displayName": "Shringar CSS",
-  "description": "A Visual Studio Code extension for providing intellisense for global postCSS classes.",
-  "version": "2.0.0",
+  "name": "postcssense",
+  "displayName": "PostCSSense",
+  "description": "Intellisense for PostCSS stylesheets with global class support",
+  "version": "2.1.0",
   "engines": {
     "vscode": "^1.77.0"
   },
@@ -17,7 +17,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/smallcase/sc-fe-shringarcss-intellisense.git"
+    "url": "https://github.com/smallcase/postcssense.git"
   },
   "icon": "smallcase-icon.png",
   "categories": [
@@ -28,6 +28,7 @@
     "onLanguage:html",
     "onLanguage:javascript",
     "onLanguage:javascriptreact",
+    "onLanguage:typescript",
     "onLanguage:typescriptreact"
   ],
   "main": "./dist/extension.js",
@@ -45,21 +46,21 @@
     ],
     "commands": [
       {
-        "command": "shringarcss-intellisense.setCssPath",
-        "title": "Shringar CSS: Set CSS Path"
+        "command": "postcssense.showClasses",
+        "title": "PostCSSense: Show CSS Classes"
       },
       {
-        "command": "shringarcss-intellisense.showClasses",
-        "title": "Shringar CSS: Show All Classes"
+        "command": "postcssense.setCssPath",
+        "title": "PostCSSense: Set CSS Path"
       }
     ],
     "configuration": {
-      "title": "Shringar CSS IntelliSense",
+      "title": "PostCSSense",
       "properties": {
-        "shringarcss-intellisense.cssPath": {
+        "postcssense.cssPath": {
           "type": "string",
-          "default": "node_modules/@smallcase/shringar/index.css",
-          "description": "Path to the Shringar CSS file (relative to workspace root)"
+          "default": "",
+          "description": "Path to CSS file that contains global class definitions"
         }
       }
     }

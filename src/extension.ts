@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register command to show CSS classes panel
   const showClassesPanelCommand = vscode.commands.registerCommand(
-    'shringarcss-intellisense.showClasses',
+    'postcssense.showClasses',
     () => {
       CssClassesPanel.createOrShow(context.extensionUri);
     }
@@ -79,17 +79,16 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register command to set CSS path
   const setCssPathCommand = vscode.commands.registerCommand(
-    'shringarcss-intellisense.setCssPath',
+    'postcssense.setCssPath',
     async () => {
       const result = await vscode.window.showInputBox({
-        prompt: 'Enter the path to your CSS file (relative to workspace root)',
-        placeHolder: 'e.g., node_modules/@smallcase/shringar/index.css',
+        prompt:
+          'Enter the path to your root CSS file (relative to workspace root). This file should contain all the global class definitions or import other CSS files.',
+        placeHolder: 'e.g., node_modules/your-css-package/index.css',
       });
 
       if (result) {
-        const config = vscode.workspace.getConfiguration(
-          'shringarcss-intellisense'
-        );
+        const config = vscode.workspace.getConfiguration('postcssense');
         await config.update(
           'cssPath',
           result,

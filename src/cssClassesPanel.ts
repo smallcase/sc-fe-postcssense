@@ -32,19 +32,21 @@ export class CssClassesPanel {
     );
   }
 
-  public static async createOrShow(extensionUri: vscode.Uri) {
+  public static async createOrShow(extensionUri: vscode.Uri): Promise<void> {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
       : undefined;
 
+    // If we already have a panel, show it.
     if (CssClassesPanel.currentPanel) {
       CssClassesPanel.currentPanel._panel.reveal(column);
       return;
     }
 
+    // Otherwise, create a new panel.
     const panel = vscode.window.createWebviewPanel(
-      'cssClasses',
-      'Shringar CSS Classes',
+      'cssClassesPanel',
+      'PostCSS Classes',
       column || vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -57,35 +59,19 @@ export class CssClassesPanel {
   }
 
   private async _refresh() {
-    // Show loading state before starting the update
-    this._panel.webview.postMessage({
-      command: 'setLoading',
-      loading: true,
-    });
+    // Set loading state
+    this._panel.webview.postMessage({ command: 'setLoading', loading: true });
 
-    await this._updateClassUsages();
-
-    // Update the classes and hide loading state
-    this._panel.webview.postMessage({
-      command: 'updateClasses',
-      classes: this._classUsages,
-    });
-  }
-
-  private async _updateClassUsages() {
     try {
-      // Get CSS path from configuration
-      const config = vscode.workspace.getConfiguration(
-        'shringarcss-intellisense'
-      );
-      const cssPath = config.get<string>('cssPath');
-      if (!cssPath) {
-        throw new Error('CSS path not configured');
-      }
-
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) {
         throw new Error('No workspace folder found');
+      }
+
+      const config = vscode.workspace.getConfiguration('postcssense');
+      const cssPath = config.get<string>('cssPath');
+      if (!cssPath) {
+        throw new Error('CSS path not configured');
       }
 
       // Read and parse CSS file
@@ -98,13 +84,6 @@ export class CssClassesPanel {
           root: workspaceFolder.uri.fsPath,
           // This ensures we get the full resolved path for imports
           resolve: (id: string, basedir: string) => {
-            if (id.startsWith('@smallcase/shringar')) {
-              return path.resolve(
-                workspaceFolder.uri.fsPath,
-                'node_modules',
-                id
-              );
-            }
             return path.resolve(basedir, id);
           },
         }),
@@ -137,9 +116,23 @@ export class CssClassesPanel {
         }
 
         rule.selectors.forEach((selector) => {
-          const matches = selector.match(/\.?global(?:\((.+?)\)|\.(\S+))/);
-          if (matches) {
-            const className = matches[1] || matches[2];
+          // Try global() syntax first
+          const globalMatches = selector.match(
+            /\.?global(?:\((.+?)\)|\.(\S+))/
+          );
+          let className = null;
+
+          if (globalMatches) {
+            className = globalMatches[1] || globalMatches[2];
+          } else {
+            // Then try regular CSS class selectors
+            const classMatch = selector.match(/^\.([A-Za-z0-9_-]+)/);
+            if (classMatch) {
+              className = classMatch[1];
+            }
+          }
+
+          if (className) {
             const existingProps = classProperties.get(className) || '';
 
             // If the rule is inside a media query
@@ -180,6 +173,12 @@ export class CssClassesPanel {
         `Error updating class usages: ${error.message}`
       );
     }
+
+    // Update the classes and hide loading state
+    this._panel.webview.postMessage({
+      command: 'updateClasses',
+      classes: this._classUsages,
+    });
   }
 
   private async _handleSearch(searchText: string) {

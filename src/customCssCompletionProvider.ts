@@ -104,7 +104,7 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
 
         // Add documentation
         completionItem.documentation = new vscode.MarkdownString(
-          `CSS class from Shringar CSS framework`
+          `CSS class from PostCSS`
         );
 
         return completionItem;
@@ -128,23 +128,22 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
   }
 
   private async getCssClasses(document: TextDocument): Promise<string[]> {
-    const config = workspace.getConfiguration('shringarcss-intellisense');
-    const cssPath = config.get<string>('cssPath');
-
-    if (!cssPath) {
-      vscode.window.showErrorMessage(
-        'Please set the CSS path using the "Shringar CSS: Set CSS Path" command'
-      );
-      return [];
-    }
-
-    const rootPath = workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
-    if (!rootPath) {
-      throw new Error('Unable to find workspace root path.');
-    }
-
-    const cssFilePath = path.join(rootPath, cssPath);
     try {
+      const config = workspace.getConfiguration('postcssense');
+      const cssPath = config.get<string>('cssPath');
+      if (!cssPath) {
+        console.warn('CSS path not configured');
+        return [];
+      }
+
+      const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
+      if (!workspaceFolder) {
+        console.warn('No workspace folder found');
+        return [];
+      }
+
+      const rootPath = workspaceFolder.uri.fsPath;
+      const cssFilePath = path.join(rootPath, cssPath);
       const cssContent = await readFile(cssFilePath, 'utf-8');
       const result = await postcss([require('postcss-import')({})]).process(
         cssContent,
@@ -168,12 +167,29 @@ function parseCssClasses(cssContent: string): string[] {
   const cssClasses: string[] = [];
 
   cssAst.walkRules((rule) => {
-    rule.selectors.forEach((selector) => {
-      const matches = selector.match(/\.?global(?:\((.+?)\)|\.(\S+))/);
+    // Skip rules inside keyframes
+    const parentAtRule =
+      rule.parent?.type === 'atrule' ? (rule.parent as postcss.AtRule) : null;
+    if (parentAtRule?.name === 'keyframes') {
+      return;
+    }
 
-      if (matches) {
-        const className = matches[1] || matches[2];
-        cssClasses.push(className.replace('.', ''));
+    rule.selectors.forEach((selector) => {
+      // Try to match global() function syntax first
+      const globalMatches = selector.match(/\.?global(?:\((.+?)\)|\.(\S+))/);
+      if (globalMatches) {
+        const className = globalMatches[1] || globalMatches[2];
+        cssClasses.push(className.replace(/^\./, ''));
+        return;
+      }
+
+      // Then try to match regular CSS class selectors
+      const classMatches = selector.match(/\.([\w\-]+)/g);
+      if (classMatches) {
+        classMatches.forEach((match) => {
+          // Remove the leading dot
+          cssClasses.push(match.substring(1));
+        });
       }
     });
   });

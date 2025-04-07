@@ -81,14 +81,12 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
   public async updateClassDefinitions(): Promise<void> {
     try {
       // Get the user-provided CSS path from settings
-      const config = vscode.workspace.getConfiguration(
-        'shringarcss-intellisense'
-      );
+      const config = vscode.workspace.getConfiguration('postcssense');
       const cssPath = config.get<string>('cssPath');
 
       if (!cssPath) {
         vscode.window.showErrorMessage(
-          'CSS path is not configured. Please set shringarcss-intellisense.cssPath in settings.'
+          'CSS path is not configured. Please set postcssense.cssPath in settings.'
         );
         return;
       }
