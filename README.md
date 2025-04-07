@@ -93,6 +93,15 @@ Contributions are welcome! Feel free to:
 
 ## Release Notes
 
+### 2.0.0
+
+- Support for html, CSS, JSX, TSX files added
+- Add Handling to provide custom path
+- Make it agnostic of Shringar and allow any post css based css files
+- Add Readme
+- Add command to provide custom css path
+- **BREAKING CHANGE** - Instead of a hardcoded path now people will have to add path themselves
+
 ### 1.0.0
 
 - Initial release
