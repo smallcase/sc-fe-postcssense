@@ -24,7 +24,10 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:css"
+    "onLanguage:css",
+    "onLanguage:html",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescriptreact"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -41,10 +44,20 @@
     ],
     "commands": [
       {
-        "command": "extension.custom-css-intellisense",
-        "title": "Hello World"
+        "command": "shringarcss-intellisense.setCssPath",
+        "title": "Shringar CSS: Set CSS Path"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Shringar CSS IntelliSense",
+      "properties": {
+        "shringarcss-intellisense.cssPath": {
+          "type": "string",
+          "default": "node_modules/@smallcase/shringar/index.css",
+          "description": "Path to the Shringar CSS file (relative to workspace root)"
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",

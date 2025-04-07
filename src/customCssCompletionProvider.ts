@@ -21,6 +21,30 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
     token: CancellationToken
   ): Promise<CompletionItem[]> {
     const line = document.lineAt(position.line).text;
+    const languageId = document.languageId;
+
+    // Handle CSS files
+    if (languageId === 'css') {
+      return this.handleCssCompletion(line, position, document);
+    }
+
+    // Handle HTML/JSX/TSX files
+    if (
+      ['html', 'javascript', 'javascriptreact', 'typescriptreact'].includes(
+        languageId
+      )
+    ) {
+      return this.handleHtmlCompletion(line, position, document);
+    }
+
+    return [];
+  }
+
+  private async handleCssCompletion(
+    line: string,
+    position: Position,
+    document: TextDocument
+  ): Promise<CompletionItem[]> {
     const composesIndex = line.lastIndexOf('composes:');
     if (composesIndex === -1 || position.character < composesIndex) {
       return [];
@@ -33,10 +57,66 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
       return [];
     }
     const classNames = textAfterComposes.substring(0, fromGlobalIndex).trim();
-    const cssClasses = parseCssClasses(await getGlobalCss(document));
+    const cssClasses = await this.getCssClasses(document);
 
-    const completionItems = cssClasses
-      .filter((cssClass) => classNames.split(' ').indexOf(cssClass) === -1)
+    return this.createCompletionItems(cssClasses, classNames);
+  }
+
+  private async handleHtmlCompletion(
+    line: string,
+    position: Position,
+    document: TextDocument
+  ): Promise<CompletionItem[]> {
+    // Get the text up to the cursor position
+    const linePrefix = line.slice(0, position.character);
+
+    // Check if we're in a className or class context
+    const isInClassContext =
+      /(class|className)\s*=\s*["']([^"']*)$/.test(linePrefix) || // Inside quotes
+      /(class|className)\s*=\s*$/.test(linePrefix); // Just after =
+
+    if (!isInClassContext) {
+      return [];
+    }
+
+    // Extract current classes if we're inside quotes
+    const currentClasses =
+      linePrefix
+        .match(/(class|className)\s*=\s*["']([^"']*)$/)?.[2]
+        ?.split(/\s+/)
+        .filter(Boolean) || [];
+    const cssClasses = await this.getCssClasses(document);
+
+    // Create completion items
+    return cssClasses
+      .filter((cssClass) => !currentClasses.includes(cssClass))
+      .map((cssClass) => {
+        const completionItem = new CompletionItem(
+          cssClass,
+          CompletionItemKind.Value
+        );
+        completionItem.insertText = cssClass;
+
+        // Add a space after if we're in the middle of existing classes
+        if (currentClasses.length > 0) {
+          completionItem.insertText = ' ' + cssClass;
+        }
+
+        // Add documentation
+        completionItem.documentation = new vscode.MarkdownString(
+          `CSS class from Shringar CSS framework`
+        );
+
+        return completionItem;
+      });
+  }
+
+  private createCompletionItems(
+    cssClasses: string[],
+    existingClasses: string
+  ): CompletionItem[] {
+    return cssClasses
+      .filter((cssClass) => existingClasses.split(' ').indexOf(cssClass) === -1)
       .map((cssClass) => {
         const completionItem = new CompletionItem(
           cssClass,
@@ -45,32 +125,42 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
         completionItem.insertText = cssClass;
         return completionItem;
       });
-
-    return completionItems;
-  }
-}
-
-async function getGlobalCss(document: TextDocument): Promise<string> {
-  const rootPath = workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
-  if (!rootPath) {
-    throw new Error('Unable to find workspace root path.');
   }
 
-  const cssFilePath = path.join(
-    rootPath,
-    'node_modules/@smallcase/shringar/index.css'
-  );
-  const cssContent = await readFile(cssFilePath, 'utf-8');
+  private async getCssClasses(document: TextDocument): Promise<string[]> {
+    const config = workspace.getConfiguration('shringarcss-intellisense');
+    const cssPath = config.get<string>('cssPath');
 
-  const result = await postcss([require('postcss-import')({})]).process(
-    cssContent,
-    {
-      from: cssFilePath,
+    if (!cssPath) {
+      vscode.window.showErrorMessage(
+        'Please set the CSS path using the "Shringar CSS: Set CSS Path" command'
+      );
+      return [];
     }
-  );
 
-  const globalCssContent = result.css;
-  return globalCssContent;
+    const rootPath = workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+    if (!rootPath) {
+      throw new Error('Unable to find workspace root path.');
+    }
+
+    const cssFilePath = path.join(rootPath, cssPath);
+    try {
+      const cssContent = await readFile(cssFilePath, 'utf-8');
+      const result = await postcss([require('postcss-import')({})]).process(
+        cssContent,
+        {
+          from: cssFilePath,
+        }
+      );
+
+      return parseCssClasses(result.css);
+    } catch (error: any) {
+      vscode.window.showErrorMessage(
+        `Failed to read CSS file: ${error.message}`
+      );
+      return [];
+    }
+  }
 }
 
 function parseCssClasses(cssContent: string): string[] {
