@@ -4,12 +4,16 @@ A Visual Studio Code extension that provides intelligent autocompletion for CSS 
 
 ## Features
 
-- 🚀 Intelligent autocompletion for CSS
+- 🚀 Intelligent autocompletion for CSS classes
 - ✨ Works across multiple file types:
   - CSS files (for `composes: from global`)
   - HTML files (for `class` attributes)
   - JSX/TSX files (for `className` props)
   - JavaScript files with JSX
+- 🔎 Hover information for CSS classes in:
+  - CSS `composes: from global` statements
+  - HTML `class` attributes
+  - JSX/TSX `className` props
 - 🔧 Configurable CSS path - use any CSS file in your project
 - 🎯 Context-aware suggestions
 - 🎨 Automatic spacing between multiple classes
@@ -33,9 +37,11 @@ A Visual Studio Code extension that provides intelligent autocompletion for CSS 
 
 ## Usage
 
-The extension automatically provides suggestions when you:
+The extension provides intelligent features in various file types:
 
-### In CSS Files
+### Autocompletion
+
+#### In CSS Files
 
 ```css
 .your-class {
@@ -43,22 +49,47 @@ The extension automatically provides suggestions when you:
 }
 ```
 
-### In JSX/TSX Files
+#### In JSX/TSX Files
 
 ```jsx
 <div className="/* Suggestions appear here */" />
 ```
 
-### In HTML Files
+#### In HTML Files
 
 ```html
 <div class="/* Suggestions appear here */"></div>
 ```
 
-### In JavaScript Files with JSX
+#### In JavaScript Files with JSX
 
 ```javascript
 const element = <div className="/* Suggestions appear here */" />;
+```
+
+### Hover Information
+
+Hover over class names to see their CSS properties:
+
+#### In CSS Files
+
+```css
+.your-class {
+  composes: button-primary from global; /* Hover over button-primary */
+}
+```
+
+#### In JSX/TSX Files
+
+```jsx
+<div className="button-primary layout-flex" /> {/* Hover over class names */}
+```
+
+#### In HTML Files
+
+```html
+<div class="button-primary layout-flex"></div>
+<!-- Hover over class names -->
 ```
 
 ### Class Explorer Panel
@@ -111,6 +142,9 @@ Contributions are welcome! Feel free to:
 - Added loading indicators for better user experience
 - Enhanced class explorer panel with improved syntax highlighting
 - Fixed various bugs related to class detection and formatting
+- Added hover functionality for class names in HTML and JSX/TSX files
+- Improved hover detection in template literals and expressions
+- Enhanced hover information with formatted CSS properties
 
 ### 2.0.0
 

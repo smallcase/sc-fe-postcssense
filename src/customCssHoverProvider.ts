@@ -47,7 +47,22 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
       }
     }
 
-    // For JS/TS/JSX/TSX, check if this is in a global() function
+    // For HTML, check if word is inside a class attribute
+    else if (document.languageId === 'html') {
+      const classAttributeRegex = /class\s*=\s*["']([^"']*)["']/g;
+      let match;
+
+      while ((match = classAttributeRegex.exec(line)) !== null) {
+        const classAttributeValue = match[1];
+        const classes = classAttributeValue.split(/\s+/);
+
+        if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
+      }
+    }
+
+    // For JS/JSX/TS/TSX, check if word is inside a className attribute or global() function
     else if (
       [
         'javascript',
@@ -56,11 +71,38 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         'typescriptreact',
       ].includes(document.languageId)
     ) {
+      // Check for global() function
       const globalMatch = line.match(
         new RegExp(`global\\((["'\`])?${word}\\1\\)`)
       );
       if (globalMatch) {
         return this.createHoverForClass(word);
+      }
+
+      // Check for className attribute
+      const classNameAttributeRegex = /className\s*=\s*["'`]([^"'`]*)["'`]/g;
+      let match;
+
+      while ((match = classNameAttributeRegex.exec(line)) !== null) {
+        const classNameAttributeValue = match[1];
+        const classes = classNameAttributeValue.split(/\s+/);
+
+        if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
+      }
+
+      // Check for template literals in className
+      const templateLiteralRegex = /className\s*=\s*{[^}]*`([^`]*)`[^}]*}/g;
+      let tlMatch;
+
+      while ((tlMatch = templateLiteralRegex.exec(line)) !== null) {
+        const templateContent = tlMatch[1];
+        const classes = templateContent.split(/\s+/);
+
+        if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
       }
     }
 
