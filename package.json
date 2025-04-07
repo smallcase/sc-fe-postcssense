@@ -2,7 +2,7 @@
   "name": "shringarcss-intellisense",
   "displayName": "Shringar CSS",
   "description": "A Visual Studio Code extension for providing intellisense for global postCSS classes.",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "engines": {
     "vscode": "^1.77.0"
   },
