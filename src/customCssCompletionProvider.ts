@@ -70,21 +70,53 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
     // Get the text up to the cursor position
     const linePrefix = line.slice(0, position.character);
 
-    // Check if we're in a className or class context
-    const isInClassContext =
+    // Check if we're in a basic className or class context with quotes
+    const isInBasicClassContext =
       /(class|className)\s*=\s*["']([^"']*)$/.test(linePrefix) || // Inside quotes
       /(class|className)\s*=\s*$/.test(linePrefix); // Just after =
 
-    if (!isInClassContext) {
+    // Check if we're in a template literal context
+    const isInTemplateLiteralContext = /className\s*=\s*{\s*`[^`]*$/.test(
+      linePrefix
+    );
+
+    // Check if we're in a complex expression with string literals
+    const isInComplexExpressionContext = /className\s*=\s*{.*?['"][^'"]*$/.test(
+      linePrefix
+    );
+
+    if (
+      !isInBasicClassContext &&
+      !isInTemplateLiteralContext &&
+      !isInComplexExpressionContext
+    ) {
       return [];
     }
 
-    // Extract current classes if we're inside quotes
-    const currentClasses =
-      linePrefix
-        .match(/(class|className)\s*=\s*["']([^"']*)$/)?.[2]
-        ?.split(/\s+/)
-        .filter(Boolean) || [];
+    // Get current classes depending on context
+    let currentClasses: string[] = [];
+
+    if (isInBasicClassContext) {
+      // Extract current classes if we're inside quotes
+      currentClasses =
+        linePrefix
+          .match(/(class|className)\s*=\s*["']([^"']*)$/)?.[2]
+          ?.split(/\s+/)
+          .filter(Boolean) || [];
+    } else if (isInTemplateLiteralContext) {
+      // Extract classes inside template literal
+      const templateMatch = linePrefix.match(/className\s*=\s*{\s*`([^`]*)$/);
+      if (templateMatch) {
+        currentClasses = templateMatch[1].split(/\s+/).filter(Boolean);
+      }
+    } else if (isInComplexExpressionContext) {
+      // Try to extract classes from the most recent string literal
+      const stringMatch = linePrefix.match(/['"]([^'"]+)$/);
+      if (stringMatch) {
+        currentClasses = stringMatch[1].split(/\s+/).filter(Boolean);
+      }
+    }
+
     const cssClasses = await this.getCssClasses(document);
 
     // Create completion items
@@ -145,13 +177,31 @@ export class CustomCssCompletionProvider implements CompletionItemProvider {
       const rootPath = workspaceFolder.uri.fsPath;
       const cssFilePath = path.join(rootPath, cssPath);
       const cssContent = await readFile(cssFilePath, 'utf-8');
-      const result = await postcss([require('postcss-import')({})]).process(
-        cssContent,
-        {
-          from: cssFilePath,
-        }
-      );
 
+      // Process imports
+      const result = await postcss([
+        require('postcss-import')({
+          root: workspaceFolder.uri.fsPath,
+          // Add resolver for imports that handles both node_modules and relative paths
+          resolve: (id: string, basedir: string) => {
+            // Check if the import is a package import (starts with @, ~ or doesn't start with .)
+            if (
+              id.startsWith('@') ||
+              id.startsWith('~') ||
+              !id.startsWith('.')
+            ) {
+              // Try to resolve from node_modules
+              return path.resolve(rootPath, 'node_modules', id);
+            }
+            // Otherwise, it's a relative import
+            return path.resolve(basedir, id);
+          },
+        }),
+      ]).process(cssContent, {
+        from: cssFilePath,
+      });
+
+      // Parse the processed CSS which includes both imported and local CSS
       return parseCssClasses(result.css);
     } catch (error: any) {
       vscode.window.showErrorMessage(
@@ -180,6 +230,24 @@ function parseCssClasses(cssContent: string): string[] {
       if (globalMatches) {
         const className = globalMatches[1] || globalMatches[2];
         cssClasses.push(className.replace(/^\./, ''));
+        return;
+      }
+
+      // Try to match :global CSS modules syntax
+      const globalPrefixMatches = selector.match(
+        /:global\s*(?:\(([^)]+)\)|\.([^:\s.]+)|\(\.([^:\s.]+)\))/
+      );
+      if (globalPrefixMatches) {
+        const className =
+          globalPrefixMatches[1] ||
+          globalPrefixMatches[2] ||
+          globalPrefixMatches[3];
+        if (className) {
+          // Remove leading dot if present
+          cssClasses.push(
+            className.startsWith('.') ? className.substring(1) : className
+          );
+        }
         return;
       }
 

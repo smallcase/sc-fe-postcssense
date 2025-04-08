@@ -79,7 +79,7 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         return this.createHoverForClass(word);
       }
 
-      // Check for className attribute
+      // Check for className attribute with quotes
       const classNameAttributeRegex = /className\s*=\s*["'`]([^"'`]*)["'`]/g;
       let match;
 
@@ -92,15 +92,64 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         }
       }
 
-      // Check for template literals in className
-      const templateLiteralRegex = /className\s*=\s*{[^}]*`([^`]*)`[^}]*}/g;
+      // Check for template literals in className with various formats:
+      // 1. Basic template literal: className={`class1 class2`}
+      // 2. With expressions: className={`class1 ${condition ? 'class2' : 'class3'}`}
+      // 3. Conditional classes: className={`${isSomething ? 'active' : ''} base-class`}
+      const templateLiteralRegex = /className\s*=\s*{\s*`([^`]*)`\s*}/g;
       let tlMatch;
 
       while ((tlMatch = templateLiteralRegex.exec(line)) !== null) {
         const templateContent = tlMatch[1];
-        const classes = templateContent.split(/\s+/);
+        const classes = templateContent.split(/\s+/).filter(Boolean);
 
         if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
+      }
+
+      // Check for the hovered word inside any template literal in a className context
+      // This is a more general approach that works with various template literal formats
+      if (line.includes('className={`') && line.includes(word)) {
+        const startBacktick = line.indexOf('`', line.indexOf('className={'));
+        if (startBacktick !== -1) {
+          const endBacktick = line.indexOf('`', startBacktick + 1);
+          if (endBacktick !== -1) {
+            const templateContent = line.substring(
+              startBacktick + 1,
+              endBacktick
+            );
+            // Check if word is in the template - use word boundaries to avoid partial matches
+            const wordRegex = new RegExp(`\\b${word}\\b`);
+            if (wordRegex.test(templateContent)) {
+              return this.createHoverForClass(word);
+            }
+          }
+        }
+      }
+
+      // Handle complex template literals with ternaries and expressions
+      // This handles cases like: className={`${active ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
+      const complexTemplateRegex = /className\s*=\s*{.*?(['"])([^'"]*)\1.*?}/g;
+      let complexMatch;
+
+      while ((complexMatch = complexTemplateRegex.exec(line)) !== null) {
+        const quotedClassNames = complexMatch[2];
+        const classes = quotedClassNames.split(/\s+/).filter(Boolean);
+
+        if (classes.includes(word)) {
+          return this.createHoverForClass(word);
+        }
+      }
+
+      // Handle direct variable class names
+      // This handles cases like: className={someClassVar}
+      if (line.includes('className={') && line.includes(word)) {
+        // Check if the word appears as a standalone variable in a className assignment
+        const varMatch = line.match(
+          new RegExp(`className\\s*=\\s*{\\s*${word}\\s*}`)
+        );
+        if (varMatch) {
           return this.createHoverForClass(word);
         }
       }
@@ -149,14 +198,34 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         const result = await postcss([
           require('postcss-import')({
             root: workspaceFolder.uri.fsPath,
+            // Add resolver for imports that handles both node_modules and relative paths
+            resolve: (id: string, basedir: string) => {
+              // Check if the import is a package import (starts with @, ~ or doesn't start with .)
+              if (
+                id.startsWith('@') ||
+                id.startsWith('~') ||
+                !id.startsWith('.')
+              ) {
+                // Try to resolve from node_modules
+                return path.resolve(
+                  workspaceFolder.uri.fsPath,
+                  'node_modules',
+                  id
+                );
+              }
+              // Otherwise, it's a relative import
+              return path.resolve(basedir, id);
+            },
           }),
         ]).process(cssContent, { from: cssFilePath });
 
-        // Parse the processed CSS
-        const ast = postcss.parse(result.css);
+        // Clear previous class definitions
         classDefinitions.clear();
 
-        // Extract class definitions from the CSS
+        // Parse the processed CSS (with imports) - includes both imported and local CSS
+        const ast = postcss.parse(result.css);
+
+        // Extract class definitions
         this.extractClassDefinitions(ast);
 
         vscode.window.setStatusBarMessage(
@@ -213,6 +282,23 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
           });
         }
 
+        // 3. CSS Modules :global syntax
+        const globalPrefixMatches = selector.match(
+          /:global\s*(?:\(([^)]+)\)|\.([^:\s.]+)|\(\.([^:\s.]+)\))/
+        );
+        if (globalPrefixMatches) {
+          const className =
+            globalPrefixMatches[1] ||
+            globalPrefixMatches[2] ||
+            globalPrefixMatches[3];
+          if (className) {
+            // Remove leading dot if present
+            classes.push(
+              className.startsWith('.') ? className.substring(1) : className
+            );
+          }
+        }
+
         return classes;
       };
 
@@ -240,9 +326,24 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
               classEntry.medias.set(mediaQuery, []);
             }
 
-            classEntry.medias.get(mediaQuery)!.push(rule);
+            // Check for duplicates before adding
+            const mediaRules = classEntry.medias.get(mediaQuery)!;
+            const isDuplicate = mediaRules.some((existingRule) =>
+              this.isSameRule(existingRule, rule)
+            );
+
+            if (!isDuplicate) {
+              mediaRules.push(rule);
+            }
           } else {
-            classEntry.rules.push(rule);
+            // Check for duplicates before adding to regular rules
+            const isDuplicate = classEntry.rules.some((existingRule) =>
+              this.isSameRule(existingRule, rule)
+            );
+
+            if (!isDuplicate) {
+              classEntry.rules.push(rule);
+            }
           }
         });
       });
@@ -250,15 +351,21 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
 
     // Now process all collected rules and build the class definitions
     for (const [className, { rules, medias }] of classRules.entries()) {
+      // Track processed properties to avoid duplicates
+      const processedProps = new Set<string>();
       let properties = '';
 
       // First add regular rules
       rules.forEach((rule) => {
         rule.nodes.forEach((node) => {
           if (node.type === 'decl') {
-            properties += properties
-              ? `\n  ${node.toString()}`
-              : node.toString();
+            // Only add the property if we haven't seen it before
+            if (!processedProps.has(node.prop)) {
+              properties += properties
+                ? `\n  ${node.toString()}`
+                : node.toString();
+              processedProps.add(node.prop);
+            }
           }
         });
       });
@@ -268,10 +375,17 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         properties += properties ? '\n  ' : '';
         properties += `@media ${mediaQuery} {\n`;
 
+        // Track properties within this media query to avoid duplicates
+        const mediaProcessedProps = new Set<string>();
+
         mediaRules.forEach((rule) => {
           rule.nodes.forEach((node) => {
             if (node.type === 'decl') {
-              properties += `    ${node.toString()}\n`;
+              // Only add if we haven't seen this property in this media query
+              if (!mediaProcessedProps.has(node.prop)) {
+                properties += `    ${node.toString()}\n`;
+                mediaProcessedProps.add(node.prop);
+              }
             }
           });
         });
@@ -283,5 +397,32 @@ export class CustomCssHoverProvider implements vscode.HoverProvider {
         classDefinitions.set(className, properties);
       }
     }
+  }
+
+  // Helper method to compare two rules to check if they're duplicates
+  private isSameRule(rule1: postcss.Rule, rule2: postcss.Rule): boolean {
+    // Rules are the same if they have the same selector and the same parent
+    if (rule1.selector !== rule2.selector) {
+      return false;
+    }
+
+    // Check if they have the same properties and values
+    const props1 = rule1.nodes.filter(
+      (n): n is postcss.Declaration => n.type === 'decl'
+    );
+    const props2 = rule2.nodes.filter(
+      (n): n is postcss.Declaration => n.type === 'decl'
+    );
+
+    if (props1.length !== props2.length) {
+      return false;
+    }
+
+    // Check if all properties in rule1 are also in rule2 with the same values
+    return props1.every((prop1) =>
+      props2.some(
+        (prop2) => prop2.prop === prop1.prop && prop2.value === prop1.value
+      )
+    );
   }
 }

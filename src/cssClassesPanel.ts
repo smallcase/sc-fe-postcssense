@@ -58,6 +58,11 @@ export class CssClassesPanel {
     await CssClassesPanel.currentPanel._refresh();
   }
 
+  // Public method to refresh the panel when CSS files change
+  public async refresh(): Promise<void> {
+    await this._refresh();
+  }
+
   private async _refresh() {
     // Set loading state
     this._panel.webview.postMessage({ command: 'setLoading', loading: true });
@@ -84,6 +89,20 @@ export class CssClassesPanel {
           root: workspaceFolder.uri.fsPath,
           // This ensures we get the full resolved path for imports
           resolve: (id: string, basedir: string) => {
+            // Check if the import is a package import (starts with @, ~ or doesn't start with .)
+            if (
+              id.startsWith('@') ||
+              id.startsWith('~') ||
+              !id.startsWith('.')
+            ) {
+              // Try to resolve from node_modules
+              return path.resolve(
+                workspaceFolder.uri.fsPath,
+                'node_modules',
+                id
+              );
+            }
+            // Otherwise, it's a relative import
             return path.resolve(basedir, id);
           },
         }),
@@ -94,6 +113,8 @@ export class CssClassesPanel {
 
       // Parse CSS classes and their properties
       const classProperties = new Map<string, string>();
+
+      // Parse the processed CSS (with imports) which includes both imported and local CSS
       const ast = postcss.parse(result.css);
 
       // Helper function to get properties from a rule
@@ -120,10 +141,26 @@ export class CssClassesPanel {
           const globalMatches = selector.match(
             /\.?global(?:\((.+?)\)|\.(\S+))/
           );
+
+          // Try :global syntax (common in CSS modules)
+          const globalPrefixMatches = selector.match(
+            /:global\s*(?:\(([^)]+)\)|\.([^:\s.]+)|\(\.([^:\s.]+)\))/
+          );
+
           let className = null;
 
           if (globalMatches) {
             className = globalMatches[1] || globalMatches[2];
+          } else if (globalPrefixMatches) {
+            // Handle different :global syntaxes
+            className =
+              globalPrefixMatches[1] ||
+              globalPrefixMatches[2] ||
+              globalPrefixMatches[3];
+            // Remove leading dot if present
+            if (className && className.startsWith('.')) {
+              className = className.substring(1);
+            }
           } else {
             // Then try regular CSS class selectors
             const classMatch = selector.match(/^\.([A-Za-z0-9_-]+)/);
@@ -133,29 +170,76 @@ export class CssClassesPanel {
           }
 
           if (className) {
-            const existingProps = classProperties.get(className) || '';
+            // Get existing properties and track which ones we've seen
+            let existingProps = classProperties.get(className) || '';
+            let processedProps = new Map<string, boolean>();
+
+            // Extract existing property names if there are any
+            if (existingProps) {
+              // Extract all property names from existing properties
+              const propRegex = /\s*([a-zA-Z\-]+):/g;
+              let match;
+              while ((match = propRegex.exec(existingProps)) !== null) {
+                if (match[1]) {
+                  processedProps.set(match[1], true);
+                }
+              }
+            }
 
             // If the rule is inside a media query
             if (parentAtRule?.name === 'media') {
               const mediaQuery = parentAtRule.params;
-              const mediaProps = getPropertiesFromRule(rule);
-              const mediaBlock = `\n  @media ${mediaQuery} {\n    ${mediaProps.replace(
-                /\n  /g,
-                '\n    '
-              )}\n  }`;
-              classProperties.set(
-                className,
-                existingProps
-                  ? `${existingProps}${mediaBlock}`
-                  : mediaBlock.trim()
-              );
+
+              // Only get properties we haven't seen yet
+              const mediaPropsArray = Array.from(rule.nodes)
+                .filter((node): node is postcss.Declaration => {
+                  return node.type === 'decl' && !processedProps.has(node.prop);
+                })
+                .map((node) => `${node.prop}: ${node.value};`);
+
+              // If we have unique properties, add them
+              if (mediaPropsArray.length > 0) {
+                const mediaProps = mediaPropsArray.join('\n  ');
+                const mediaBlock = `\n  @media ${mediaQuery} {\n    ${mediaProps.replace(
+                  /\n  /g,
+                  '\n    '
+                )}\n  }`;
+
+                classProperties.set(
+                  className,
+                  existingProps
+                    ? `${existingProps}${mediaBlock}`
+                    : mediaBlock.trim()
+                );
+
+                // Update the processed properties
+                mediaPropsArray.forEach((prop) => {
+                  const propName = prop.split(':')[0].trim();
+                  processedProps.set(propName, true);
+                });
+              }
             } else {
-              // Regular properties
-              const props = getPropertiesFromRule(rule);
-              classProperties.set(
-                className,
-                existingProps ? `${existingProps}\n  ${props}` : props
-              );
+              // Regular properties - only include ones we haven't seen
+              const newPropsArray = Array.from(rule.nodes)
+                .filter((node): node is postcss.Declaration => {
+                  return node.type === 'decl' && !processedProps.has(node.prop);
+                })
+                .map((node) => `${node.prop}: ${node.value};`);
+
+              // If we have unique properties, add them
+              if (newPropsArray.length > 0) {
+                const newProps = newPropsArray.join('\n  ');
+                classProperties.set(
+                  className,
+                  existingProps ? `${existingProps}\n  ${newProps}` : newProps
+                );
+
+                // Update the processed properties
+                newPropsArray.forEach((prop) => {
+                  const propName = prop.split(':')[0].trim();
+                  processedProps.set(propName, true);
+                });
+              }
             }
           }
         });

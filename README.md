@@ -52,7 +52,17 @@ The extension provides intelligent features in various file types:
 #### In JSX/TSX Files
 
 ```jsx
-<div className="/* Suggestions appear here */" />
+<div className="/* Suggestions appear here */" />;
+
+{
+  /* Template literals are supported */
+}
+<div className={`base-class ${isActive ? 'active' : ''}`} />;
+
+{
+  /* Conditional classes work too */
+}
+<div className={`${condition ? 'conditional-class' : ''} always-present`} />;
 ```
 
 #### In HTML Files
@@ -115,6 +125,58 @@ Alternatively, add this to your `settings.json`:
 }
 ```
 
+### CSS Import Resolution
+
+The extension automatically handles various import formats in your CSS files:
+
+- **Package imports** (from `node_modules`):
+
+  ```css
+  @import '@package-name/style.css';
+  @import '~package-name/style.css';
+  ```
+
+- **Relative imports** (relative to the current file):
+  ```css
+  @import './components/button.css';
+  @import '../styles/variables.css';
+  ```
+
+### CSS Global Class Support
+
+The extension supports various syntaxes for global CSS classes:
+
+- **Standard CSS classes**:
+
+  ```css
+  .button-primary {
+    ...;
+  }
+  ```
+
+- **Global function syntax**:
+
+  ```css
+  .global(button-primary) {
+    ...;
+  }
+  global(.button-primary) {
+    ...;
+  }
+  ```
+
+- **CSS Modules :global syntax**:
+  ```css
+  :global .button-primary {
+    ...;
+  }
+  :global(.button-primary) {
+    ...;
+  }
+  ```
+
+All these formats are properly recognized for autocompletion and hover information.
+
 ## Requirements
 
 - Visual Studio Code version 1.77.0 or higher
@@ -133,6 +195,22 @@ Contributions are welcome! Feel free to:
 3. Submit a pull request
 
 ## Release Notes
+
+### 3.1.0
+
+- Added hover functionality for class names in HTML and JSX/TSX files
+- Improved hover detection in template literals and expressions
+- Enhanced hover information with formatted CSS properties
+- Added support for conditional class expressions in template literals
+- Fixed intellisense for complex JSX className patterns with ternary operators
+- Fixed CSS resolution for package imports (e.g., `@import "@package-name/style.css"`)
+- Added proper node_modules resolution for CSS imports
+- Added support for CSS Modules `:global` syntax in local CSS files
+- Fixed dynamic updating of CSS classes panel when CSS files change
+
+### 3.0.0
+
+- Rebranded to `PostCSSense`
 
 ### 2.1.0
 

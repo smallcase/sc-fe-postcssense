@@ -63,10 +63,18 @@ export function activate(context: vscode.ExtensionContext) {
   cssFileWatcher.onDidChange(() => {
     console.log('CSS file changed, updating class definitions');
     hoverProvider.updateClassDefinitions();
+    // Refresh the CSS classes panel if it's open
+    if (CssClassesPanel.currentPanel) {
+      CssClassesPanel.currentPanel.refresh();
+    }
   });
   cssFileWatcher.onDidCreate(() => {
     console.log('CSS file created, updating class definitions');
     hoverProvider.updateClassDefinitions();
+    // Refresh the CSS classes panel if it's open
+    if (CssClassesPanel.currentPanel) {
+      CssClassesPanel.currentPanel.refresh();
+    }
   });
 
   context.subscriptions.push(
