@@ -4,6 +4,14 @@ All notable changes to the "PostCSSense" extension will be documented in this fi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+### [3.1.2]
+
+- fix issue with setcsspath command not working because of compilation mismatch
+
+### [3.1.1]
+
+- Move Changelog to changelog.md
+
 ### [3.1.0]
 
 - Added hover functionality for class names in HTML and JSX/TSX files
